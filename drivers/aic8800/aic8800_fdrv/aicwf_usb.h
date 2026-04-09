@@ -38,7 +38,7 @@ enum AICWF_IC{
 };
 
 
-#define AICWF_USB_RX_URBS               (200)//(200)
+#define AICWF_USB_RX_URBS               (20)//(200)
 #ifdef CONFIG_USB_MSG_IN_EP
 #define AICWF_USB_MSG_RX_URBS           (100)
 #endif
@@ -46,7 +46,7 @@ enum AICWF_IC{
 #define TXQLEN                          (2048*4)
 #define AICWF_USB_TX_URBS               (50)
 #else
-#define AICWF_USB_TX_URBS               200//(100)
+#define AICWF_USB_TX_URBS               50//(200)
 #endif
 #define AICWF_USB_TX_LOW_WATER         (AICWF_USB_TX_URBS/4)//25%
 #define AICWF_USB_TX_HIGH_WATER        (AICWF_USB_TX_LOW_WATER*3)//75%
