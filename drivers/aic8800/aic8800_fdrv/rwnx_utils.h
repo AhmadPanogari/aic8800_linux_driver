@@ -15,7 +15,6 @@
 #include "lmac_msg.h"
 #include "aicwf_debug.h"
 
-
 #if 0
 #ifdef CONFIG_RWNX_DBG
 /*  #define RWNX_DBG(format, arg...) pr_warn(format, ## arg) */

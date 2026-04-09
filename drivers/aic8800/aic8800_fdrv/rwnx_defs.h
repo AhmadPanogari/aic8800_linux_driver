@@ -30,9 +30,6 @@
 #include "rwnx_platform.h"
 #include "rwnx_cmds.h"
 #include "rwnx_compat.h"
-#ifdef CONFIG_FILTER_TCP_ACK
-#include "aicwf_tcp_ack.h"
-#endif
 
 #ifdef AICWF_SDIO_SUPPORT
 #include "aicwf_sdio.h"
@@ -60,18 +57,6 @@
 #define PS_SP_INTERRUPTED  255
 #define MAC_ADDR_LEN 6
 
-//because android kernel 5.15 uses kernel 6.0 or 6.1 kernel api
-#ifdef ANDROID_PLATFORM
-#define HIGH_KERNEL_VERSION KERNEL_VERSION(5, 15, 41)
-#define HIGH_KERNEL_VERSION2 KERNEL_VERSION(5, 15, 41)
-#define HIGH_KERNEL_VERSION3 KERNEL_VERSION(5, 15, 104)
-#define HIGH_KERNEL_VERSION4 KERNEL_VERSION(6, 1, 0)
-#else
-#define HIGH_KERNEL_VERSION KERNEL_VERSION(6, 0, 0)
-#define HIGH_KERNEL_VERSION2 KERNEL_VERSION(6, 1, 0)
-#define HIGH_KERNEL_VERSION3 KERNEL_VERSION(6, 3, 0)
-#define HIGH_KERNEL_VERSION4 KERNEL_VERSION(6, 3, 0)
-#endif
 
 #ifndef IEEE80211_MAX_AMPDU_BUF
 #define IEEE80211_MAX_AMPDU_BUF                             0x100
@@ -84,13 +69,6 @@
 #endif
 #ifndef IEEE80211_HE_PHY_CAP3_RX_HE_MU_PPDU_FROM_NON_AP_STA
 #define IEEE80211_HE_PHY_CAP3_RX_HE_MU_PPDU_FROM_NON_AP_STA 0x40
-#endif
-
-#if LINUX_VERSION_CODE >= HIGH_KERNEL_VERSION
-#define IEEE80211_MAX_AMPDU_BUF                             IEEE80211_MAX_AMPDU_BUF_HE
-#define IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB         IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB
-#define IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB         IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB
-#define IEEE80211_HE_PHY_CAP3_RX_HE_MU_PPDU_FROM_NON_AP_STA IEEE80211_HE_PHY_CAP3_RX_PARTIAL_BW_SU_IN_20MHZ_MU
 #endif
 
 
@@ -354,9 +332,7 @@ struct rwnx_vif {
     struct net_device *ndev;
     struct net_device_stats net_stats;
     struct rwnx_key key[6];
-    unsigned long drv_flags;
     atomic_t drv_conn_state;
-    u8 is_conn;
     u8 drv_vif_index;           /* Identifier of the VIF in driver */
     u8 vif_index;               /* Identifier of the station in FW */
     u8 ch_index;                /* Channel context identifier */
@@ -381,15 +357,13 @@ struct rwnx_vif {
                                     the AP */
             struct rwnx_sta *tdls_sta; /* Pointer to the TDLS station */
             bool external_auth;  /* Indicate if external authentication is in progress */
-            u32 group_cipher_type;
-            u32 paired_cipher_type;
-			//connected network info start
-			char ssid[33];//ssid max is 32, but this has one spare for '\0'
-			int ssid_len;
-			u8 bssid[ETH_ALEN];
-			u32 conn_owner_nlportid;
-			bool is_roam;
-			//connected network info end
+            u8 group_cipher_type;
+            u8 paired_cipher_type;
+            //connected network info start
+            char ssid[33];//ssid max is 32, but this has one spare for '\0'
+            int ssid_len;
+            u8 bssid[ETH_ALEN];
+            //connected network info end
         } sta;
         struct
         {
@@ -653,23 +627,18 @@ struct rwnx_hw {
     #endif
     struct rwnx_survey_info survey[SCAN_CHANNEL_MAX];
     struct cfg80211_scan_request *scan_request;
-#ifdef CONFIG_SCHED_SCAN
-    struct cfg80211_sched_scan_request *sched_scan_req;
-#endif
     struct rwnx_chanctx chanctx_table[NX_CHAN_CTXT_CNT];
     u8 cur_chanctx;
 
     u8 monitor_vif; /* FW id of the monitor interface, RWNX_INVALID_VIF if no monitor vif at fw level */
-#ifdef CONFIG_FILTER_TCP_ACK
-       /* tcp ack management */
-    struct tcp_ack_manage ack_m;
-#endif
+
     /* RoC Management */
     struct rwnx_roc_elem *roc_elem;             /* Information provided by cfg80211 in its remain on channel request */
     u32 roc_cookie_cnt;                         /* Counter used to identify RoC request sent by cfg80211 */
 
     struct rwnx_cmd_mgr *cmd_mgr;
 
+    unsigned long drv_flags;
     struct rwnx_plat *plat;
 
     spinlock_t tx_lock;
@@ -712,7 +681,7 @@ struct rwnx_hw {
 #endif
     struct rwnx_hwq hwq[NX_TXQ_CNT];
 
-    u64 avail_idx_map;
+    u8 avail_idx_map;
     u8 vif_started;
     bool adding_sta;
     struct rwnx_phy_info phy;
@@ -732,16 +701,11 @@ struct rwnx_hw {
     atomic_t p2p_alive_timer_count;
     bool band_5g_support;
     bool fwlog_en;
-    bool scanning;
-    bool p2p_working;
 
-    struct work_struct apmStalossWork;
+	struct work_struct apmStalossWork;
     struct workqueue_struct *apmStaloss_wq;
     u8 apm_vif_idx;
     u8 sta_mac_addr[6];
-#ifdef CONFIG_SCHED_SCAN
-        bool is_sched_scan;
-#endif//CONFIG_SCHED_SCAN 
 
 	struct sta_tx_flowctrl sta_flowctrl[NX_REMOTE_STA_MAX];
 #if 0

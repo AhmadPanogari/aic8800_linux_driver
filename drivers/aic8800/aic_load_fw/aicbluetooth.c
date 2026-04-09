@@ -2,9 +2,7 @@
 #include <linux/vmalloc.h>
 #include "aicbluetooth_cmds.h"
 #include "aicwf_usb.h"
-#include "aic_txrxif.h"
 #include "md5.h"
-#include "aicbluetooth.h"
 #ifdef CONFIG_USE_FW_REQUEST
 #include <linux/firmware.h>
 #endif
@@ -14,8 +12,6 @@
 #define CMD 1
 #define PRINT 2
 #define GET_VALUE 3
-
-extern int flash_erase_len;
 
 typedef struct
 {
@@ -83,6 +79,15 @@ xtal_cap_conf_t userconfig_xtal_cap = {
 	.xtal_cap_fine = 31,
 };
 
+
+struct aicbt_patch_table {
+	char     *name;
+	uint32_t type;
+	uint32_t *data;
+	uint32_t len;
+	struct aicbt_patch_table *next;
+};
+
 struct aicbt_info_t {
     uint32_t btmode;
     uint32_t btport;
@@ -97,6 +102,12 @@ struct aicbsp_info_t {
     uint32_t cpmode;
 };
 
+#define AICBT_PT_TAG          "AICBT_PT_TAG"
+#define AICBT_PT_TRAP         0x01
+#define AICBT_PT_B4           0x02
+#define AICBT_PT_BTMODE       0x03
+#define AICBT_PT_PWRON        0x04
+#define AICBT_PT_AF           0x05
 
 enum aicbt_btport_type {
     AICBT_BTPORT_NULL,
@@ -114,7 +125,6 @@ enum aicbt_btmode_type {
     AICBT_BTMODE_BT_ONLY,             // bt only mode without switch
     AICBT_BTMODE_BT_ONLY_TEST,        // bt only test mode
     AICBT_BTMODE_BT_WIFI_COMBO_TEST,  // wifi/bt combo test mode
-    AICBT_BTMODE_BT_ONLY_COANT,       // bt only mode with no external switch
     AICBT_MODE_NULL = 0xFF,           // invalid value
 };
 
@@ -146,7 +156,6 @@ enum aicbsp_cpmode_type {
 ///aic bt tx pwr lvl :lsb->msb: first byte, min pwr lvl; second byte, max pwr lvl;
 ///pwr lvl:20(min), 30 , 40 , 50 , 60(max)
 #define AICBT_TXPWR_LVL            0x00006020
-#define AICBT_TXPWR_LVL_8800d80     0x00006F2F
 
 #define AICBSP_MODE_BT_HCI_MODE_NULL              0
 #define AICBSP_MODE_BT_HCI_MODE_MB                1
@@ -155,21 +164,18 @@ enum aicbsp_cpmode_type {
 #define AICBSP_HWINFO_DEFAULT       (-1)
 #define AICBSP_CPMODE_DEFAULT       AICBSP_CPMODE_WORK
 
-#define AICBT_BTMODE_DEFAULT_8800d80        AICBT_BTMODE_BT_ONLY_COANT
-#define AICBT_BTMODE_DEFAULT                AICBT_BTMODE_BT_ONLY
-#define AICBT_BTPORT_DEFAULT                AICBT_BTPORT_MB
-#define AICBT_UART_BAUD_DEFAULT             AICBT_UART_BAUD_1_5M
-#define AICBT_UART_FC_DEFAULT               AICBT_UART_FLOWCTRL_ENABLE
-#define AICBT_LPM_ENABLE_DEFAULT            0
-#define AICBT_TXPWR_LVL_DEFAULT             AICBT_TXPWR_LVL
-#define AICBT_TXPWR_LVL_DEFAULT_8800d80     AICBT_TXPWR_LVL_8800d80
-
+#define AICBT_BTMODE_DEFAULT        AICBT_BTMODE_BT_ONLY
+#define AICBT_BTPORT_DEFAULT        AICBT_BTPORT_MB
+#define AICBT_UART_BAUD_DEFAULT     AICBT_UART_BAUD_1_5M
+#define AICBT_UART_FC_DEFAULT       AICBT_UART_FLOWCTRL_ENABLE
+#define AICBT_LPM_ENABLE_DEFAULT    0
+#define AICBT_TXPWR_LVL_DEFAULT     AICBT_TXPWR_LVL
 
 #define AIC_HW_INFO 0x21
 
 #define FW_PATH_MAX 200
 #if defined(CONFIG_PLATFORM_UBUNTU)
-static const char* aic_default_fw_path = "/lib/firmware";
+static const char* aic_default_fw_path = "/lib/firmware/";
 #else
 static const char* aic_default_fw_path = "/vendor/etc/firmware";
 #endif
@@ -191,7 +197,7 @@ int aic_bt_platform_init(struct aic_usb_dev *usbdev)
 
 void aic_bt_platform_deinit(struct aic_usb_dev *usbdev)
 {
-	rwnx_cmd_mgr_deinit(&usbdev->cmd_mgr);
+
 }
 
 #define MD5(x) x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7],x[8],x[9],x[10],x[11],x[12],x[13],x[14],x[15]
@@ -248,15 +254,11 @@ static int aic_load_firmware(u32 ** fw_buf, const char *name, struct device *dev
     void *buffer=NULL;
     char *path=NULL;
     struct file *fp=NULL;
-    int size = 0, len=0;//, i=0;
+    int size = 0, len=0, i=0;
     ssize_t rdlen=0;
-    //u32 *src=NULL, *dst = NULL;
+    u32 *src=NULL, *dst = NULL;
 	MD5_CTX md5;
 	unsigned char decrypt[16];
-#if defined(CONFIG_PLATFORM_UBUNTU)
-    struct aicwf_bus *bus_if = dev_get_drvdata(device);
-    struct aic_usb_dev *usb_dev = bus_if->bus_priv.usb;
-#endif
 
     /* get the firmware path */
     path = __getname();
@@ -270,13 +272,7 @@ static int aic_load_firmware(u32 ** fw_buf, const char *name, struct device *dev
 		len = snprintf(path, FW_PATH_MAX, "%s/%s", aic_fw_path, name);
     } else {
     #if defined(CONFIG_PLATFORM_UBUNTU)
-        if (usb_dev->chipid == PRODUCT_ID_AIC8800) {
-            len = snprintf(path, FW_PATH_MAX, "%s/%s/%s",aic_default_fw_path, "aic8800", name);
-        } else if (usb_dev->chipid == PRODUCT_ID_AIC8800D80) {
-            len = snprintf(path, FW_PATH_MAX, "%s/%s/%s",aic_default_fw_path, "aic8800D80", name);
-        } else {
-            printk("%s unknown chipid %d\n", __func__, usb_dev->chipid);
-        }
+		len = snprintf(path, FW_PATH_MAX, "%s/%s/%s",aic_default_fw_path, "aic8800", name);
 	#else
 		len = snprintf(path, FW_PATH_MAX, "%s/%s",aic_default_fw_path, name);
 	#endif
@@ -350,7 +346,6 @@ static int aic_load_firmware(u32 ** fw_buf, const char *name, struct device *dev
     }
 
 
-#if 0
    /*start to transform the data format*/
     src = (u32*)buffer;
     //printk("malloc dst\n");
@@ -370,19 +365,16 @@ static int aic_load_firmware(u32 ** fw_buf, const char *name, struct device *dev
     for(i=0;i<(size/4);i++){
             dst[i] = src[i];
     }
-#endif
 
     __putname(path);
     filp_close(fp,NULL);
     fp=NULL;
-    //vfree(buffer);
-    //buffer=NULL;
-    //*fw_buf = dst;
-	*fw_buf = (u32 *)buffer;
+    vfree(buffer);
+    buffer=NULL;
+    *fw_buf = dst;
 
 	MD5Init(&md5);
-	//MD5Update(&md5, (unsigned char *)dst, size);
-	MD5Update(&md5, (unsigned char *)buffer, size);
+	MD5Update(&md5, (unsigned char *)dst, size);
 	MD5Final(&md5, decrypt);
 
 	printk(MD5PINRT, MD5(decrypt));
@@ -661,90 +653,6 @@ int rwnx_plat_m2d_flash_ota_check(struct aic_usb_dev *usbdev, char *filename)
 }
 #endif//CONFIG_M2D_OTA_AUTO_SUPPORT
 
-int rwnx_plat_flash_bin_upload_android(struct aic_usb_dev *usbdev, u32 fw_addr,
-                               char *filename)
-{
-    struct device *dev = usbdev->dev;
-    unsigned int i=0;
-    int size;
-    u32 *dst=NULL;
-    int err=0;
-    const u32 mem_addr = fw_addr;
-    struct dbg_mem_read_cfm rd_mem_addr_cfm;
-
-    /* load aic firmware */
-    size = aic_load_firmware(&dst, filename, dev);
-    if(size<=0){
-            printk("wrong size of firmware file\n");
-            vfree(dst);
-            dst = NULL;
-            return ENOENT;
-    }
-
-    printk("size %x, flash_erase_len %x\n", size, flash_erase_len);
-    if (size != flash_erase_len || (flash_erase_len & 0xFFF)) {
-        printk("wrong size of flash_erase_len %d\n", flash_erase_len);
-        vfree(dst);
-        dst = NULL;
-        return -1;
-    }
-
-    err = rwnx_send_dbg_mem_read_req(usbdev, mem_addr, &rd_mem_addr_cfm);
-    if (err) {
-        printk("%x rd fail: %d\n", mem_addr, err);
-        return err;
-    }
-
-    if (rd_mem_addr_cfm.memdata != 0xffffffff) {
-        //erase flash
-        if (size > 0x40000) {
-            for (i = 0; i < (size - 0x40000); i +=0x40000) {//each time erase 256K
-                err = rwnx_send_dbg_mem_mask_write_req(usbdev, fw_addr+i, 0xf150e250, 0x40000);
-                if (err) {
-                    printk("flash erase fail: %x, err:%d\r\n", fw_addr + i, err);
-                    return err;
-                }
-            }
-        }
-        if (!err && (i < size)) {// <256KB data
-            err = rwnx_send_dbg_mem_mask_write_req(usbdev, fw_addr + i, 0xf150e250, size - i);
-            if (err) {
-                printk("flash erase fail: %x, err:%d\r\n", fw_addr + i, err);
-            }
-        }
-    }
-
-    /* Copy the file on the Embedded side */
-    printk("### Upload %s firmware, @ = %x  size=%d\n", filename, fw_addr, size);
-
-    if (size > 1024) {// > 1KB data
-        for (i = 0; i < (size - 1024); i += 1024) {//each time write 1KB
-            err = rwnx_send_dbg_mem_block_write_req(usbdev, fw_addr + i, 1024, dst + i / 4);
-                if (err) {
-                printk("bin upload fail: %x, err:%d\r\n", fw_addr + i, err);
-                break;
-            }
-        }
-    }
-
-    if (!err && (i < size)) {// <1KB data
-        err = rwnx_send_dbg_mem_block_write_req(usbdev, fw_addr + i, size - i, dst + i / 4);
-        if (err) {
-            printk("bin upload fail: %x, err:%d\r\n", fw_addr + i, err);
-        }
-    }
-
-    if (dst) {
-        vfree(dst);
-        dst = NULL;
-    }
-
-    printk("fw download complete\n\n");
-
-    return err;
-}
-
-
 uint32_t rwnx_atoli(char *value){
 	int len = 0;
 	int temp_len = 0;
@@ -826,22 +734,14 @@ int get_testmode(void){
 int get_hardware_info(void){
 	return AIC_HW_INFO;
 }
-
-extern int adap_test;
-int get_adap_test(void){
-    return adap_test;
-}
-
 EXPORT_SYMBOL(get_fw_path);
 
 EXPORT_SYMBOL(get_testmode);
 
 EXPORT_SYMBOL(set_testmode);
 
+
 EXPORT_SYMBOL(get_hardware_info);
-
-EXPORT_SYMBOL(get_adap_test);
-
 
 void get_userconfig_xtal_cap(xtal_cap_conf_t *xtal_cap)
 {
@@ -1018,15 +918,14 @@ void rwnx_plat_userconfig_parsing(char *buffer, int size){
 
 }
 
-int rwnx_plat_userconfig_upload_android(struct aic_usb_dev *usbdev, char *filename){
+int rwnx_plat_userconfig_upload_android(char *filename){
     int size;
     u32 *dst=NULL;
-    struct device *dev = usbdev->dev;
 
 	printk("userconfig file path:%s \r\n", filename);
 
     /* load aic firmware */
-    size = aic_load_firmware(&dst, filename, dev);
+    size = aic_load_firmware(&dst, filename, NULL);
     if(size <= 0){
             printk("wrong size of firmware file\n");
             vfree(dst);
@@ -1050,9 +949,9 @@ int rwnx_plat_userconfig_upload_android(struct aic_usb_dev *usbdev, char *filena
 
 
 
-int aicbt_patch_table_free(struct aicbt_patch_table *head)
+int aicbt_patch_table_free(struct aicbt_patch_table **head)
 {
-	struct aicbt_patch_table *p = head, *n = NULL;
+	struct aicbt_patch_table *p = *head, *n = NULL;
 	while (p) {
 		n = p->next;
 		vfree(p->name);
@@ -1060,84 +959,8 @@ int aicbt_patch_table_free(struct aicbt_patch_table *head)
 		vfree(p);
 		p = n;
 	}
-	head = NULL;
+	*head = NULL;
 	return 0;
-}
-
-struct aicbt_patch_table *aicbt_patch_table_alloc(struct aic_usb_dev *usbdev,const char *filename)
-{
-	struct device *dev = usbdev->dev;
-	struct aicbt_patch_table *head = NULL;
-	struct aicbt_patch_table *new = NULL;
-	struct aicbt_patch_table *cur = NULL;
-	int size;
-	int ret = 0;
-	uint8_t *rawdata=NULL;
-	uint8_t *p = NULL;
-
-	/* load aic firmware */
-	size = aic_load_firmware((u32 **)&rawdata, filename, dev);
-
-	/* Copy the file on the Embedded side */
-	printk("### Upload %s fw_patch_table, size=%d\n", filename, size);
-
-	if (size <= 0) {
-		printk("wrong size of firmware file\n");
-		ret = -1;
-		goto err;
-	}
-
-	p = rawdata;
-
-	if (memcmp(p, AICBT_PT_TAG, sizeof(AICBT_PT_TAG) < 16 ? sizeof(AICBT_PT_TAG) : 16)) {
-		printk("TAG err\n");
-		ret = -1;
-		goto err;
-	}
-	p += 16;
-
-	while (p - rawdata < size) {
-		//printk("size = %d  p - rawdata = %d \r\n", size, p - rawdata);
-		new = (struct aicbt_patch_table *)vmalloc(sizeof(struct aicbt_patch_table));
-		memset(new, 0, sizeof(struct aicbt_patch_table));
-		if (head == NULL) {
-			head = new;
-			cur  = new;
-		} else {
-			cur->next = new;
-			cur = cur->next;
-		}
-
-		cur->name = (char *)vmalloc(sizeof(char) * 16);
-		memset(cur->name, 0, sizeof(char) * 16);
-		memcpy(cur->name, p, 16);
-		p += 16;
-
-		cur->type = *(uint32_t *)p;
-		p += 4;
-
-		cur->len = *(uint32_t *)p;
-		p += 4;
-
-		if((cur->type )  >= 1000 || cur->len == 0) {//Temp Workaround
-			cur->len = 0;
-		}else{
-			cur->data = (uint32_t *)vmalloc(sizeof(uint8_t) * cur->len * 8);
-			memset(cur->data, 0, sizeof(uint8_t) * cur->len * 8);
-			memcpy(cur->data, p, cur->len * 8);
-			p += cur->len * 8;
-		}
-	}
-
-	vfree(rawdata);
-
-	return head;
-
-err:
-	aicbt_patch_table_free(head);
-	if (rawdata)
-		vfree(rawdata);
-	return NULL;
 }
 
 struct aicbsp_info_t aicbsp_info = {
@@ -1145,33 +968,13 @@ struct aicbsp_info_t aicbsp_info = {
     .cpmode   = AICBSP_CPMODE_DEFAULT,
 };
 
-
-
-static struct aicbt_info_t aicbt_info[] = {
-    {   
-        .btmode        = AICBT_BTMODE_DEFAULT,
-        .btport        = AICBT_BTPORT_DEFAULT,
-        .uart_baud     = AICBT_UART_BAUD_DEFAULT,
-        .uart_flowctrl = AICBT_UART_FC_DEFAULT,
-        .lpm_enable    = AICBT_LPM_ENABLE_DEFAULT,
-        .txpwr_lvl     = AICBT_TXPWR_LVL_DEFAULT,
-    },//PRODUCT_ID_AIC8800
-    {
-    },//PRODUCT_ID_AIC8801
-    {
-    },//PRODUCT_ID_AIC8800DC
-    {
-    },//PRODUCT_ID_AIC8800DW
-    {
-        .btmode        = AICBT_BTMODE_DEFAULT_8800d80,
-        .btport        = AICBT_BTPORT_DEFAULT,
-        .uart_baud     = AICBT_UART_BAUD_DEFAULT,
-        .uart_flowctrl = AICBT_UART_FC_DEFAULT,
-        .lpm_enable    = AICBT_LPM_ENABLE_DEFAULT,
-        .txpwr_lvl     = AICBT_TXPWR_LVL_DEFAULT_8800d80,
-    },//PRODUCT_ID_AIC8800D80
-    {
-    },//PRODUCT_ID_AIC8800D81
+static struct aicbt_info_t aicbt_info = {
+    .btmode        = AICBT_BTMODE_DEFAULT,
+    .btport        = AICBT_BTPORT_DEFAULT,
+    .uart_baud     = AICBT_UART_BAUD_DEFAULT,
+    .uart_flowctrl = AICBT_UART_FC_DEFAULT,
+    .lpm_enable    = AICBT_LPM_ENABLE_DEFAULT,
+    .txpwr_lvl     = AICBT_TXPWR_LVL_DEFAULT,
 };
 
 int aicbt_patch_table_load(struct aic_usb_dev *usbdev, struct aicbt_patch_table *_head)
@@ -1181,7 +984,6 @@ int aicbt_patch_table_load(struct aic_usb_dev *usbdev, struct aicbt_patch_table 
 	uint32_t *data = NULL;
 
 	head = _head;
-
 	for (p = head; p != NULL; p = p->next) {
 		data = p->data;
 		if(AICBT_PT_BTMODE == p->type){
@@ -1189,18 +991,12 @@ int aicbt_patch_table_load(struct aic_usb_dev *usbdev, struct aicbt_patch_table 
 			*(data + 3) = aicbsp_info.hwinfo;
 			*(data + 5)  = aicbsp_info.cpmode;
 
-			*(data + 7) = aicbt_info[usbdev->chipid].btmode;
-			*(data + 9) = aicbt_info[usbdev->chipid].btport;
-			*(data + 11) = aicbt_info[usbdev->chipid].uart_baud;
-			*(data + 13) = aicbt_info[usbdev->chipid].uart_flowctrl;
-			*(data + 15) = aicbt_info[usbdev->chipid].lpm_enable;
-			*(data + 17) = aicbt_info[usbdev->chipid].txpwr_lvl;
-            
-            printk("%s bt btmode[%d]:%d \r\n", __func__, usbdev->chipid, aicbt_info[usbdev->chipid].btmode);
-    		printk("%s bt uart_baud[%d]:%d \r\n", __func__, usbdev->chipid, aicbt_info[usbdev->chipid].uart_baud);
-    		printk("%s bt uart_flowctrl[%d]:%d \r\n", __func__, usbdev->chipid, aicbt_info[usbdev->chipid].uart_flowctrl);
-    		printk("%s bt lpm_enable[%d]:%d \r\n", __func__, usbdev->chipid, aicbt_info[usbdev->chipid].lpm_enable);
-    		printk("%s bt tx_pwr[%d]:%d \r\n", __func__, usbdev->chipid, aicbt_info[usbdev->chipid].txpwr_lvl);
+			*(data + 7) = aicbt_info.btmode;
+			*(data + 9) = aicbt_info.btport;
+			*(data + 11) = aicbt_info.uart_baud;
+			*(data + 13) = aicbt_info.uart_flowctrl;
+			*(data + 15) = aicbt_info.lpm_enable;
+			*(data + 17) = aicbt_info.txpwr_lvl;
 
 		}
 		if (p->type == 0x06) {
@@ -1217,20 +1013,10 @@ int aicbt_patch_table_load(struct aic_usb_dev *usbdev, struct aicbt_patch_table 
 		if (p->type == AICBT_PT_PWRON)
 			udelay(500);
 	}
-	aicbt_patch_table_free(head);
+	aicbt_patch_table_free(&head);
 	return 0;
 }
 
-int aicbt_patch_info_unpack(struct aicbt_patch_info_t *patch_info, struct aicbt_patch_table *head_t)
-{
-    if (AICBT_PT_INF == head_t->type) {
-        patch_info->info_len = head_t->len;
-        if(patch_info->info_len == 0)
-            return 0;
-        memcpy(&patch_info->adid_addrinf, head_t->data, patch_info->info_len * sizeof(uint32_t) * 2);
-    }
-    return 0;
-}
 
 int rwnx_plat_bin_fw_patch_table_upload_android(struct aic_usb_dev *usbdev, char *filename){
     struct device *dev = usbdev->dev;
@@ -1286,7 +1072,7 @@ int rwnx_plat_bin_fw_patch_table_upload_android(struct aic_usb_dev *usbdev, char
 		cur->len = *(uint32_t *)p;
 		p += 4;
 
-		if((cur->type )  >= 1000 || cur->len == 0) {//Temp Workaround
+		if((cur->type )  >= 1000 ) {//Temp Workaround
 			cur->len = 0;
 		}else{
 			cur->data = (uint32_t *)vmalloc(sizeof(uint8_t) * cur->len * 8);
