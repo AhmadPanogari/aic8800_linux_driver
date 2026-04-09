@@ -1718,7 +1718,7 @@ static int aicwf_usb_init(struct aic_usb_dev *usb_dev)
     }
 #ifdef CONFIG_USB_MSG_IN_EP
 	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
-		// ret =  aicwf_usb_alloc_msg_rx_urb(usb_dev);
+		ret =  aicwf_usb_alloc_msg_rx_urb(usb_dev);
 		if (ret) {
 			goto error;
 		}
@@ -1804,6 +1804,12 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
         }else if (usb_dev->chipid == PRODUCT_ID_AIC8800DW) {
             printk("8800dw\n");
 		}
+    }
+
+    if(usb_dev->chipid == PRODUCT_ID_AIC8800DW){
+        AICWFDBG(LOGINFO, "Chip in use is 8800dw or 8800fc\n");
+    }else{
+        AICWFDBG(LOGINFO, "Chip in use is 8800dc or something else\n");
     }
 
     if ((interface_desc->bInterfaceClass != USB_CLASS_VENDOR_SPEC) ||
