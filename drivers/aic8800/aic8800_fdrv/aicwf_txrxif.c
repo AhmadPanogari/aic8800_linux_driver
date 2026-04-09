@@ -710,6 +710,15 @@ int aicwf_process_msg_rxframes(struct aicwf_rx_priv *rx_priv)
     u8 *data = NULL;
     u8_l *msg = NULL;
 
+    // TAMBAHKAN SAFETY CHECK DI SINI
+    if (!rx_priv->usbdev || !rx_priv->usbdev->rwnx_hw) {
+        txrx_err("USB device or HW not initialized, dropping config msg\n");
+        if (msg) kfree(msg);
+        dev_kfree_skb(skb);
+        atomic_dec(&rx_priv->msg_rx_cnt);
+        return -ENODEV; // Keluar dari fungsi karena hardware tidak siap
+    }
+
     while (1) {
         spin_lock_irqsave(&rx_priv->msg_rxqlock, flags);
         if(aicwf_is_framequeue_empty(&rx_priv->msg_rxq)) {
