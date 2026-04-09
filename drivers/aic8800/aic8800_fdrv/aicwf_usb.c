@@ -1560,9 +1560,9 @@ static int aicwf_usb_bus_start(struct device *dev)
     aicwf_usb_rx_prepare(usb_dev);
     aicwf_usb_tx_prepare(usb_dev);
 #ifdef CONFIG_USB_MSG_IN_EP
-	if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
 		aicwf_usb_msg_rx_prepare(usb_dev);
-	}
+	// }
 #endif
 
     return 0;
@@ -1607,9 +1607,9 @@ static void aicwf_usb_cancel_all_urbs_(struct aic_usb_dev *usb_dev)
 
     usb_kill_anchored_urbs(&usb_dev->rx_submitted);
 #ifdef CONFIG_USB_MSG_IN_EP
-	if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
    		usb_kill_anchored_urbs(&usb_dev->msg_rx_submitted);
-	}
+	// }
 #endif
 }
 
@@ -1679,9 +1679,9 @@ static int aicwf_usb_init(struct aic_usb_dev *usb_dev)
     init_waitqueue_head(&usb_dev->msg_wait);
     init_usb_anchor(&usb_dev->rx_submitted);
 #ifdef CONFIG_USB_MSG_IN_EP
-	if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
 		init_usb_anchor(&usb_dev->msg_rx_submitted);
-	}
+	// }
 #endif
 
     spin_lock_init(&usb_dev->tx_free_lock);
@@ -1689,18 +1689,18 @@ static int aicwf_usb_init(struct aic_usb_dev *usb_dev)
     spin_lock_init(&usb_dev->rx_free_lock);
     spin_lock_init(&usb_dev->tx_flow_lock);
 #ifdef CONFIG_USB_MSG_IN_EP
-	if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
 		spin_lock_init(&usb_dev->msg_rx_free_lock);
-	}
+	// }
 #endif
 
     INIT_LIST_HEAD(&usb_dev->rx_free_list);
     INIT_LIST_HEAD(&usb_dev->tx_free_list);
     INIT_LIST_HEAD(&usb_dev->tx_post_list);
 #ifdef CONFIG_USB_MSG_IN_EP
-	if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
 		INIT_LIST_HEAD(&usb_dev->msg_rx_free_list);
-	}
+	// }
 #endif
 
 	atomic_set(&rx_urb_cnt, 0);
@@ -1717,12 +1717,12 @@ static int aicwf_usb_init(struct aic_usb_dev *usb_dev)
         goto error;
     }
 #ifdef CONFIG_USB_MSG_IN_EP
-	if(usb_dev->chipid != PRODUCT_ID_AIC8801){
-		ret =  aicwf_usb_alloc_msg_rx_urb(usb_dev);
+	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+		// ret =  aicwf_usb_alloc_msg_rx_urb(usb_dev);
 		if (ret) {
 			goto error;
 		}
-	}
+	//}
 #endif
 
 
@@ -1735,9 +1735,9 @@ static int aicwf_usb_init(struct aic_usb_dev *usb_dev)
 
     INIT_WORK(&usb_dev->rx_urb_work, aicwf_usb_rx_urb_work);
 #ifdef CONFIG_USB_MSG_IN_EP
-	if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+	// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
 		INIT_WORK(&usb_dev->msg_rx_urb_work, aicwf_usb_msg_rx_urb_work);
-	}
+	// }
 #endif
 
     return ret;
@@ -1792,7 +1792,7 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
 
     /* Check interface number */
 #ifdef CONFIG_USB_BT
-    if (usb->actconfig->desc.bNumInterfaces != 3) {
+    if (usb->actconfig->desc.bNumInterfaces != 1) {
 #else
     if (usb->actconfig->desc.bNumInterfaces != 1) {
 #endif
@@ -1827,9 +1827,9 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
             }
 #ifdef CONFIG_USB_MSG_IN_EP
             else if (!usb_dev->msg_in_pipe) {
-				if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+				// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
                 	usb_dev->msg_in_pipe = usb_rcvbulkpipe(usb, endpoint_num);
-				}
+				// }
             }
 #endif
         }
@@ -1865,11 +1865,11 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
     }
 #endif
 #ifdef CONFIG_USB_MSG_IN_EP
-		if(usb_dev->chipid != PRODUCT_ID_AIC8801){
+		// if(usb_dev->chipid != PRODUCT_ID_AIC8801){
 			if (usb_dev->msg_in_pipe == 0) {
 				usb_err("No RX Msg (in) Bulk EP found\n");
 			}
-		}
+		// }
 #endif
 
     if (usb->speed == USB_SPEED_HIGH){
