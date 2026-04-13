@@ -567,11 +567,22 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
             }
             memcpy(msg, data, aggr_len + 4);
 
-            if(((*(msg + 2) & 0x7f) == USB_TYPE_CFG_CMD_RSP) && (rx_priv->usbdev->bus_if->state != (int)USB_DOWN_ST))
+            if(((*(msg + 2) & 0x7f) == USB_TYPE_CFG_CMD_RSP) &&
+               (rx_priv->usbdev->state == USB_UP_ST) &&
+               (rx_priv->usbdev->bus_if->state == BUS_UP_ST))
                 rwnx_rx_handle_msg(rx_priv->usbdev->rwnx_hw, (struct ipc_e2a_msg *)(msg + 4));
 
-            if((*(msg + 2) & 0x7f) == USB_TYPE_CFG_DATA_CFM)
-                aicwf_usb_host_tx_cfm_handler(&(rx_priv->usbdev->rwnx_hw->usb_env), (u32 *)(msg + 4));
+            if((*(msg + 2) & 0x7f) == USB_TYPE_CFG_DATA_CFM) {
+                if ((rx_priv->usbdev->state == USB_UP_ST) &&
+                    (rx_priv->usbdev->bus_if->state == BUS_UP_ST) &&
+                    (aggr_len >= sizeof(u32) * 2))
+                    aicwf_usb_host_tx_cfm_handler(&(rx_priv->usbdev->rwnx_hw->usb_env), (u32 *)(msg + 4));
+                else
+                    txrx_err("drop tx cfm: usb_state=%d bus_state=%d aggr_len=%u\n",
+                             rx_priv->usbdev->state,
+                             rx_priv->usbdev->bus_if->state,
+                             aggr_len);
+            }
 
             if ((*(msg + 2) & 0x7f) == USB_TYPE_CFG_PRINT)
                 rwnx_rx_handle_print(rx_priv->usbdev->rwnx_hw, msg + 4, aggr_len);
@@ -710,14 +721,8 @@ int aicwf_process_msg_rxframes(struct aicwf_rx_priv *rx_priv)
     u8 *data = NULL;
     u8_l *msg = NULL;
 
-    // TAMBAHKAN SAFETY CHECK DI SINI
-    if (!rx_priv->usbdev || !rx_priv->usbdev->rwnx_hw) {
-        txrx_err("USB device or HW not initialized, dropping config msg\n");
-        if (msg) kfree(msg);
-        dev_kfree_skb(skb);
-        atomic_dec(&rx_priv->msg_rx_cnt);
-        return -ENODEV; // Keluar dari fungsi karena hardware tidak siap
-    }
+    if (!rx_priv)
+        return -EINVAL;
 
     while (1) {
         spin_lock_irqsave(&rx_priv->msg_rxqlock, flags);
@@ -732,6 +737,22 @@ int aicwf_process_msg_rxframes(struct aicwf_rx_priv *rx_priv)
             txrx_err("skb_error\r\n");
             break;
         }
+
+        if (!rx_priv->usbdev || !rx_priv->usbdev->rwnx_hw || !rx_priv->usbdev->bus_if) {
+            txrx_err("USB device, bus, or HW not initialized, dropping rx msg\n");
+            dev_kfree_skb(skb);
+            atomic_dec(&rx_priv->msg_rx_cnt);
+            continue;
+        }
+
+        if (skb->len < 3) {
+            txrx_err("short rx msg skb len=%u\n", skb->len);
+            dev_kfree_skb(skb);
+            atomic_dec(&rx_priv->msg_rx_cnt);
+            continue;
+        }
+
+        msg = NULL;
         data = skb->data;
         pkt_len = (*skb->data | (*(skb->data + 1) << 8));
         //printk("p:%d, s:%d , %x\n", pkt_len, skb->len, data[2]);
@@ -749,6 +770,13 @@ int aicwf_process_msg_rxframes(struct aicwf_rx_priv *rx_priv)
                 adjust_len = roundup(aggr_len, RX_ALIGNMENT);
             else
                 adjust_len = aggr_len;
+
+            if (skb->len < aggr_len) {
+                txrx_err("short rx data skb len=%u expect=%u\n", skb->len, aggr_len);
+                dev_kfree_skb(skb);
+                atomic_dec(&rx_priv->msg_rx_cnt);
+                continue;
+            }
 
             skb_inblock = __dev_alloc_skb(aggr_len + CCMP_OR_WEP_INFO, GFP_KERNEL);//8 is for ccmp mic or wep icv
             if(skb_inblock == NULL){
@@ -773,6 +801,13 @@ int aicwf_process_msg_rxframes(struct aicwf_rx_priv *rx_priv)
                 adjust_len = roundup(aggr_len, RX_ALIGNMENT);
             else
                 adjust_len = aggr_len;
+
+            if (skb->len < aggr_len + 4) {
+                txrx_err("short rx cfg skb len=%u expect=%u\n", skb->len, aggr_len + 4);
+                dev_kfree_skb(skb);
+                atomic_dec(&rx_priv->msg_rx_cnt);
+                continue;
+            }
 
             msg = kmalloc(aggr_len+4, GFP_KERNEL);
             if(msg == NULL){
@@ -1177,4 +1212,3 @@ bool aicwf_rxbuff_enqueue(struct device *dev, struct rx_frame_queue *rxq, struct
     }
 }
 #endif
-
