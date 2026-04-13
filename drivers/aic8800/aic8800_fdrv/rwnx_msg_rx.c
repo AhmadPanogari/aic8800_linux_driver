@@ -1481,19 +1481,75 @@ static msg_cb_fct *msg_hdlrs[] = {
 #endif /* CONFIG_RWNX_FULLMAC */
 };
 
+static bool rwnx_msg_id_valid(lmac_msg_id_t id)
+{
+    lmac_task_id_t task = MSG_T(id);
+    u16 idx = MSG_I(id);
+
+    if (task >= ARRAY_SIZE(msg_hdlrs) || !msg_hdlrs[task])
+        return false;
+
+    switch (task) {
+    case TASK_MM:
+        return idx < ARRAY_SIZE(mm_hdlrs);
+    case TASK_DBG:
+        return idx < ARRAY_SIZE(dbg_hdlrs);
+#ifdef CONFIG_RWNX_FULLMAC
+    case TASK_TDLS:
+        return idx < ARRAY_SIZE(tdls_hdlrs);
+    case TASK_SCANU:
+        return idx < ARRAY_SIZE(scan_hdlrs);
+    case TASK_ME:
+        return idx < ARRAY_SIZE(me_hdlrs);
+    case TASK_SM:
+        return idx < ARRAY_SIZE(sm_hdlrs);
+    case TASK_APM:
+        return idx < ARRAY_SIZE(apm_hdlrs);
+    case TASK_MESH:
+        return idx < ARRAY_SIZE(mesh_hdlrs);
+#endif
+    default:
+        return false;
+    }
+}
+
 /**
  *
  */
 void rwnx_rx_handle_msg(struct rwnx_hw *rwnx_hw, struct ipc_e2a_msg *msg)
 {
-	//printk("%s(%d) MSG_T(msg->id):%d MSG_I(msg->id):%d cmd:%s\r\n", __func__, 
-	//	msg->id,
-	//	MSG_T(msg->id), 
-	//	MSG_I(msg->id),
-	//	rwnx_id2str[MSG_T(msg->id)][MSG_I(msg->id)]);
-	
-    rwnx_hw->cmd_mgr->msgind(rwnx_hw->cmd_mgr, msg,
-                            msg_hdlrs[MSG_T(msg->id)][MSG_I(msg->id)]);
+    lmac_task_id_t task;
+    u16 idx;
+    msg_cb_fct hdlr;
+
+    if (!rwnx_hw || !rwnx_hw->cmd_mgr || !msg) {
+        AICWFDBG(LOGERROR, "%s invalid input hw=%p cmd_mgr=%p msg=%p\n",
+                 __func__, rwnx_hw, rwnx_hw ? rwnx_hw->cmd_mgr : NULL, msg);
+        return;
+    }
+
+    if (msg->pattern != IPC_MSGE2A_VALID_PATTERN) {
+        AICWFDBG(LOGERROR, "%s invalid pattern=0x%x id=0x%x len=%u\n",
+                 __func__, msg->pattern, msg->id, msg->param_len);
+        return;
+    }
+
+    task = MSG_T(msg->id);
+    idx = MSG_I(msg->id);
+    if (!rwnx_msg_id_valid(msg->id)) {
+        AICWFDBG(LOGERROR, "%s invalid msg id=0x%x task=%u idx=%u len=%u\n",
+                 __func__, msg->id, task, idx, msg->param_len);
+        return;
+    }
+
+    hdlr = msg_hdlrs[task][idx];
+    if (!hdlr) {
+        AICWFDBG(LOGERROR, "%s no handler msg id=0x%x task=%u idx=%u len=%u\n",
+                 __func__, msg->id, task, idx, msg->param_len);
+        return;
+    }
+
+    rwnx_hw->cmd_mgr->msgind(rwnx_hw->cmd_mgr, msg, hdlr);
 }
 
 void rwnx_rx_handle_print(struct rwnx_hw *rwnx_hw, u8 *msg, u32 len)
@@ -1501,12 +1557,15 @@ void rwnx_rx_handle_print(struct rwnx_hw *rwnx_hw, u8 *msg, u32 len)
     u8 *data_end = NULL;
     (void)data_end;
 
+    if (!msg || !len)
+        return;
+
     if (!rwnx_hw || !rwnx_hw->fwlog_en) {
-        pr_err("FWLOG-OVFL: %s", msg);
+        pr_err("FWLOG-OVFL: %.*s", (int)len, msg);
         return;
     }
 
-    printk("FWLOG: %s", msg);
+    printk("FWLOG: %.*s", (int)len, msg);
 
 #ifdef CONFIG_RWNX_DEBUGFS
     data_end = rwnx_hw->debugfs.fw_log.buf.dataend;
@@ -1535,4 +1594,3 @@ void rwnx_rx_handle_print(struct rwnx_hw *rwnx_hw, u8 *msg, u32 len)
     spin_unlock_bh(&rwnx_hw->debugfs.fw_log.lock);
 #endif
 }
-
