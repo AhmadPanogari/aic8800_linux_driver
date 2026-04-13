@@ -680,11 +680,23 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
             }
             memcpy(msg, data, aggr_len + 4);
 
-            if(((*(msg + 2) & 0x7f) == USB_TYPE_CFG_CMD_RSP) && (rx_priv->usbdev->bus_if->state != (int)USB_DOWN_ST))
+            if(((*(msg + 2) & 0x7f) == USB_TYPE_CFG_CMD_RSP) &&
+               (rx_priv->usbdev->state == USB_UP_ST) &&
+               (rx_priv->usbdev->bus_if->state == BUS_UP_ST) &&
+               (aggr_len >= sizeof(struct ipc_e2a_msg) - sizeof(((struct ipc_e2a_msg *)0)->param)))
                 rwnx_rx_handle_msg(rx_priv->usbdev->rwnx_hw, (struct ipc_e2a_msg *)(msg + 4));
 
-            if((*(msg + 2) & 0x7f) == USB_TYPE_CFG_DATA_CFM)
-                aicwf_usb_host_tx_cfm_handler(&(rx_priv->usbdev->rwnx_hw->usb_env), (u32 *)(msg + 4));
+            if((*(msg + 2) & 0x7f) == USB_TYPE_CFG_DATA_CFM) {
+                if ((rx_priv->usbdev->state == USB_UP_ST) &&
+                    (rx_priv->usbdev->bus_if->state == BUS_UP_ST) &&
+                    (aggr_len >= sizeof(u32) * 2))
+                    aicwf_usb_host_tx_cfm_handler(&(rx_priv->usbdev->rwnx_hw->usb_env), (u32 *)(msg + 4));
+                else
+                    txrx_err("drop tx cfm: usb_state=%d bus_state=%d aggr_len=%u\n",
+                             rx_priv->usbdev->state,
+                             rx_priv->usbdev->bus_if->state,
+                             aggr_len);
+            }
 
             if ((*(msg + 2) & 0x7f) == USB_TYPE_CFG_PRINT)
                 rwnx_rx_handle_print(rx_priv->usbdev->rwnx_hw, msg + 4, aggr_len);
