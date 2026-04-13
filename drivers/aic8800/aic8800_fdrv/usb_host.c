@@ -80,7 +80,26 @@ void aicwf_usb_host_tx_cfm_handler(struct usb_host_env_tag *env, u32 *data)
     //struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
     struct sk_buff *skb = NULL;
     struct rwnx_txhdr *txhdr;
+    struct rwnx_hw *rwnx_hw;
 	AICWFDBG(LOGTRACE, "%s Enter \n", __func__);
+
+    if (!env || !data) {
+        AICWFDBG(LOGERROR, "%s invalid env/data\n", __func__);
+        return;
+    }
+
+    rwnx_hw = (struct rwnx_hw *)env->pthis;
+    if (!rwnx_hw || !rwnx_hw->usbdev || !rwnx_hw->usbdev->bus_if) {
+        AICWFDBG(LOGERROR, "%s invalid hw context env=%p pthis=%p\n", __func__, env, env->pthis);
+        return;
+    }
+
+    if (rwnx_hw->usbdev->state != USB_UP_ST || rwnx_hw->usbdev->bus_if->state != BUS_UP_ST) {
+        AICWFDBG(LOGERROR, "%s drop cfm usb_state=%d bus_state=%d\n",
+                 __func__, rwnx_hw->usbdev->state, rwnx_hw->usbdev->bus_if->state);
+        return;
+    }
+
     //printk("sdio_host_tx_cfm_handler, %d, 0x%08x\r\n", queue_idx, data[1]);
     // TX confirmation descriptors have been received
    // REG_SW_SET_PROFILING(env->pthis, SW_PROF_IRQ_E2A_TXCFM);
@@ -111,6 +130,10 @@ void aicwf_usb_host_tx_cfm_handler(struct usb_host_env_tag *env, u32 *data)
 
         // set the cfm status
         skb = (struct sk_buff *)host_id;
+        if (!skb || !skb->data) {
+            AICWFDBG(LOGERROR, "%s invalid skb hostid=%p\n", __func__, (void *)host_id);
+            return;
+        }
         txhdr = (struct rwnx_txhdr *)skb->data;
         txhdr->hw_hdr.cfm.status = (union rwnx_hw_txstatus)data[0];
         //txhdr->hw_hdr.status = data[1];
@@ -151,4 +174,3 @@ int aicwf_rwnx_usb_platform_init(struct aic_usb_dev *usbdev)
 #endif
     return ret;
 }
-
