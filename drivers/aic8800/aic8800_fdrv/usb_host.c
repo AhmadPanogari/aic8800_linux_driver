@@ -80,7 +80,6 @@ void aicwf_usb_host_tx_cfm_handler(struct usb_host_env_tag *env, u32 *data)
     //struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
     struct sk_buff *skb = NULL;
     struct rwnx_txhdr *txhdr;
-    struct rwnx_hw *rwnx_hw;
 	AICWFDBG(LOGTRACE, "%s Enter \n", __func__);
 
     if (!env || !data) {
@@ -88,15 +87,8 @@ void aicwf_usb_host_tx_cfm_handler(struct usb_host_env_tag *env, u32 *data)
         return;
     }
 
-    rwnx_hw = (struct rwnx_hw *)env->pthis;
-    if (!rwnx_hw || !rwnx_hw->usbdev || !rwnx_hw->usbdev->bus_if) {
+    if (!env->pthis) {
         AICWFDBG(LOGERROR, "%s invalid hw context env=%p pthis=%p\n", __func__, env, env->pthis);
-        return;
-    }
-
-    if (rwnx_hw->usbdev->state != USB_UP_ST || rwnx_hw->usbdev->bus_if->state != BUS_UP_ST) {
-        AICWFDBG(LOGERROR, "%s drop cfm usb_state=%d bus_state=%d\n",
-                 __func__, rwnx_hw->usbdev->state, rwnx_hw->usbdev->bus_if->state);
         return;
     }
 
